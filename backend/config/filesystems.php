@@ -33,7 +33,7 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],
@@ -43,6 +43,10 @@ return [
             'root' => storage_path('app/public'),
             'url' => rtrim(env('APP_URL', 'http://localhost'), '/').'/storage',
             'visibility' => 'public',
+            // Laravel 13 automatically registers GET /storage/{path} for disks
+            // with serve => true. This replaces the need for storage:link on
+            // shared hosting, where symlinks are often unavailable.
+            'serve' => true,
             'throw' => false,
             'report' => false,
         ],

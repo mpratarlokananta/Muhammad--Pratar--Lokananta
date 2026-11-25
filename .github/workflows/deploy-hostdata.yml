@@ -1,0 +1,234 @@
+name: Deploy Backend ke HostData (FTP)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-hostdata.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: hostdata-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build lalu upload via FTP
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      PHP_VERSION: ${{ vars.PHP_VERSION || '8.4' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Normalisasi domain API
+        id: domain
+        env:
+          RAW_API_DOMAIN: ${{ secrets.API_DOMAIN }}
+        run: |
+          host=$(printf '%s' "$RAW_API_DOMAIN" | tr '[:upper:]' '[:lower:]' | sed -E 's#^https?://##; s#/$##')
+          if [ -z "$host" ]; then
+            echo "::error::GitHub Secret API_DOMAIN belum diisi (contoh: api.contoh.com)."
+            exit 1
+          fi
+          echo "host=$host" >> "$GITHUB_OUTPUT"
+          echo "Domain API: $host"
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: bcmath, curl, fileinfo, gd, intl, mbstring, mysql, pdo_mysql, zip
+          tools: composer:v2
+          coverage: none
+
+      - name: Tulis .env dari GitHub Secret
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+          API_HOST: ${{ steps.domain.outputs.host }}
+        run: |
+          if [ -z "$ENV_FILE" ]; then
+            echo "::error::GitHub Secret ENV_FILE belum diisi."
+            exit 1
+          fi
+
+          printf '%s\n' "$ENV_FILE" > backend/.env
+
+          if ! grep -Eq '^APP_KEY=base64:.{40,}$' backend/.env; then
+            echo "::error::ENV_FILE harus berisi APP_KEY=base64:... yang valid. Generate dengan: cd backend && php artisan key:generate --show"
+            exit 1
+          fi
+
+          # Nilai ini harus mengikuti domain yang dipakai curl dan frontend.
+          sed -i '/^APP_URL=/d; /^FILESYSTEM_DISK=/d' backend/.env
+          printf 'APP_URL=https://%s\n' "$API_HOST" >> backend/.env
+          printf 'FILESYSTEM_DISK=public\n' >> backend/.env
+
+      - name: Install dependencies produksi
+        working-directory: backend
+        run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+
+      - name: Cache config, route, dan view
+        working-directory: backend
+        run: php artisan optimize
+
+      - name: Buat token sekali pakai untuk migrasi
+        id: deploy_token
+        run: echo "value=$(openssl rand -hex 24)" >> "$GITHUB_OUTPUT"
+
+      - name: Susun struktur upload
+        env:
+          DEPLOY_TOKEN: ${{ steps.deploy_token.outputs.value }}
+        run: |
+          rm -rf build
+          mkdir -p build/laravel build/public_html
+
+          # Semua aplikasi Laravel kecuali folder public/.
+          rsync -a \
+            --exclude '/public/' \
+            --exclude '/tests/' \
+            --exclude '/node_modules/' \
+            backend/ build/laravel/
+
+          # Document root = isi backend/public/ (.htaccess ikut tersalin).
+          rsync -a backend/public/ build/public_html/
+
+          # Folder runtime sengaja dikosongkan. Isi aslinya tidak di-upload
+          # supaya file hasil upload pengguna tidak tertimpa saat deploy.
+          find build/laravel/storage -type f -delete 2>/dev/null || true
+          mkdir -p \
+            build/laravel/storage/app/public \
+            build/laravel/storage/framework/cache/data \
+            build/laravel/storage/framework/sessions \
+            build/laravel/storage/framework/testing/disks/public \
+            build/laravel/storage/framework/views \
+            build/laravel/storage/logs
+
+          test -f build/laravel/.env
+          test -f build/public_html/index.php
+          test -f build/public_html/.htaccess
+
+          # Script one-off untuk migrate + seed. Token diambil dari output
+          # workflow dan script akan menghapus dirinya sendiri setelah berhasil.
+          cat > build/public_html/deploy.php <<'PHP'
+          <?php
+
+          declare(strict_types=1);
+
+          use Database\Seeders\AdminUserSeeder;
+          use Illuminate\Contracts\Console\Kernel;
+
+          $token = '__DEPLOY_TOKEN__';
+          $given = $_SERVER['HTTP_X_DEPLOY_TOKEN'] ?? ($_GET['token'] ?? '');
+
+          if (! is_string($given) || ! hash_equals($token, $given)) {
+              http_response_code(404);
+              exit;
+          }
+
+          @set_time_limit(300);
+          header('Content-Type: application/json; charset=utf-8');
+
+          $root = dirname(__DIR__);
+          $dirs = [
+              $root.'/laravel/storage/app/public',
+              $root.'/laravel/storage/framework/cache/data',
+              $root.'/laravel/storage/framework/sessions',
+              $root.'/laravel/storage/framework/testing/disks/public',
+              $root.'/laravel/storage/framework/views',
+              $root.'/laravel/storage/logs',
+          ];
+
+          foreach ($dirs as $dir) {
+              if (! is_dir($dir) && ! mkdir($dir, 0775, true) && ! is_dir($dir)) {
+                  http_response_code(500);
+                  echo json_encode(['ok' => false, 'error' => 'Gagal membuat folder: '.$dir]);
+                  exit;
+              }
+          }
+
+          require $root.'/laravel/vendor/autoload.php';
+
+          /** @var \Illuminate\Foundation\Application $app */
+          $app = require_once $root.'/laravel/bootstrap/app.php';
+
+          try {
+              $kernel = $app->make(Kernel::class);
+              $kernel->call('migrate', ['--force' => true]);
+              $kernel->call('db:seed', ['--class' => AdminUserSeeder::class, '--force' => true]);
+              $output = $kernel->output();
+          } catch (Throwable $e) {
+              http_response_code(500);
+              echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+              exit;
+          }
+
+          @unlink(__FILE__);
+
+          echo json_encode(['ok' => true, 'output' => $output]);
+          PHP
+
+          sed -i "s/__DEPLOY_TOKEN__/$DEPLOY_TOKEN/" build/public_html/deploy.php
+          grep -q "$DEPLOY_TOKEN" build/public_html/deploy.php
+
+      - name: Upload ke HostData via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          server-dir: ${{ secrets.FTP_REMOTE_PATH }}
+          local-dir: ./build/
+          protocol: ftp
+          port: 21
+          log-level: minimal
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            laravel/storage/app/public/**
+            laravel/storage/framework/cache/**
+            laravel/storage/framework/sessions/**
+            laravel/storage/framework/testing/**
+            laravel/storage/framework/views/**
+            laravel/storage/logs/**
+            public_html/storage/**
+
+      - name: Jalankan migrate & seed sekali pakai
+        env:
+          API_HOST: ${{ steps.domain.outputs.host }}
+          DEPLOY_TOKEN: ${{ steps.deploy_token.outputs.value }}
+        run: |
+          response=/tmp/hostdata-deploy-response.json
+
+          for attempt in $(seq 1 12); do
+            code=$(curl -sS -o "$response" -w '%{http_code}' \
+              -H "X-Deploy-Token: $DEPLOY_TOKEN" \
+              "https://$API_HOST/deploy.php" || true)
+
+            if [ "$code" = "200" ]; then
+              echo "Deploy hook berhasil:"
+              cat "$response"
+              echo
+              exit 0
+            fi
+
+            echo "Percobaan $attempt/12 gagal (HTTP ${code:-000}). Menunggu 10 detik..."
+            sleep 10
+          done
+
+          echo "::error::Gagal memanggil deploy.php. Cek DNS, SSL, FTP_REMOTE_PATH, dan log hosting."
+          cat "$response" 2>/dev/null || true
+          exit 1
+
+      - name: Cek health endpoint
+        env:
+          API_HOST: ${{ steps.domain.outputs.host }}
+        run: curl -fsS "https://$API_HOST/up"
