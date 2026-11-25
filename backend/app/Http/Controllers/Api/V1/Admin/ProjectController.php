@@ -10,6 +10,7 @@ use App\Models\Project;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class ProjectController extends Controller
 {
@@ -76,7 +77,7 @@ class ProjectController extends Controller
     private function cover(Request $request, string $fallback = ''): string
     {
         if ($request->hasFile('cover_file')) {
-            return $request->file('cover_file')->store('projects', 'public');
+            return Storage::putFile('projects', $request->file('cover_file'));
         }
 
         if ($request->exists('cover')) {
@@ -102,7 +103,7 @@ class ProjectController extends Controller
         ));
 
         foreach ((array) $request->file('image_files', []) as $file) {
-            $images[] = $file->store('projects', 'public');
+            $images[] = Storage::putFile('projects', $file);
         }
 
         return array_values(array_unique($images));

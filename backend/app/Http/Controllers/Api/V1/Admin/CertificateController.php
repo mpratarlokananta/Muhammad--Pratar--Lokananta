@@ -10,6 +10,7 @@ use App\Models\Certificate;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class CertificateController extends Controller
 {
@@ -97,7 +98,7 @@ class CertificateController extends Controller
     private function image(Request $request, ?string $fallback = ''): string
     {
         if ($request->hasFile('image_file')) {
-            return $request->file('image_file')->store('certificates', 'public');
+            return Storage::putFile('certificates', $request->file('image_file'));
         }
 
         if ($request->exists('image')) {
