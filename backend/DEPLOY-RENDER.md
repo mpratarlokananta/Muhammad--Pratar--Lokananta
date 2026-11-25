@@ -14,7 +14,7 @@ File yang dipakai:
 ## 1. Buat database Neon (gratis, tanpa kartu)
 
 1. Buka https://neon.com → **Sign up with GitHub**.
-2. Buat project, pilih region **Singapore** (biar dekat dengan Render `singapore`).
+2. Buat project, pilih region mana saja (mis. Singapore). Render memakai region default Oregon; beda region hanya menambah sedikit latency.
 3. Buat database dengan nama `portfolio`.
 4. Di halaman **Connection Details**, pilih connection string **Pooled** dan salin.
 
@@ -44,7 +44,7 @@ Salin hasil `base64:...`.
 1. Buka https://dashboard.render.com → **Sign up with GitHub**.
 2. Klik **New → Blueprint**.
 3. Pilih repo `mpratarlokananta/Muhammad--Pratar--Lokananta`, branch `main`.
-4. Render akan membaca `render.yaml` di root repo.
+4. Render akan membaca `render.yaml` di root repo. Pastikan **Compute Plan = Free** di layar konfirmasi. Kalau Render menyarankan kartu, cek apakah plan-nya berubah ke paid; jangan lanjut. Blueprint sudah memakai `plan: free` dan region default Oregon.
 5. Saat diminta isi variabel yang `sync: false`, isi:
 
    | Variable | Nilai |

@@ -3,7 +3,6 @@ services:
     name: portfolio-backend
     runtime: docker
     plan: free
-    region: singapore
     rootDir: backend
     dockerfilePath: ./Dockerfile
     dockerContext: .
