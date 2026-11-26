@@ -164,7 +164,7 @@ export default function Hero() {
           <div className="h-full flex items-end justify-center">
             <Image
               src="/aset/nanta1.png"
-              alt="Muhammad Pratar Lokananta - Full-Stack Developer"
+              alt="Muhammad Pratar Lokananta - Front End Developer"
               width={433}
               height={576}
               className="h-full w-auto object-contain object-bottom scale-[1.1] md:scale-[1.2] drop-shadow-[0_30px_60px_rgba(0,0,0,0.9)]"

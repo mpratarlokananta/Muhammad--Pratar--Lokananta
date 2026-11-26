@@ -107,7 +107,7 @@ export default function About() {
                 transition={{ duration: 0.9, ease: easeOutExpo, delay: 0.15 }}
                 className="text-[#333] text-lg md:text-xl font-medium leading-relaxed"
               >
-                I build web applications from front to back — crafting clean interfaces with React &amp; Next.js and powering them with Laravel on the server side. Since 2023, I&apos;ve been turning ideas into functional digital products, from e-commerce platforms to donation systems. I focus on writing scalable code, creating smooth user experiences, and delivering solutions that actually work. Currently exploring mobile development with Flutter and diving deeper into system architecture.
+                I&apos;m a front end developer who turns ideas into clean, responsive, and interactive websites. I build portfolio websites and other front end projects with React, Next.js, and modern web technologies — paying close attention to UI details, smooth interactions, and maintainable code. Since 2025, I&apos;ve been sharpening my craft through hands-on projects, from personal portfolios to polished web interfaces, and I&apos;m always looking for new challenges to create digital experiences that look great and work beautifully. Currently, I&apos;m exploring the back end side of development as I work toward becoming a full stack developer.
               </motion.p>
 
               <motion.div
